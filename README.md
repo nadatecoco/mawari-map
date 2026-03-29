@@ -27,6 +27,11 @@
 - 公開は Render などの静的ホスティングを想定
 - 広告掲載をする場合でも、出典表示と利用方針を残す
 
+## 公開先
+
+- Repository: `https://github.com/nadatecoco/mawari-map`
+- GitHub Pages: `https://nadatecoco.github.io/mawari-map/`
+
 ## デプロイ方法 (Render)
 1. このリポジトリをGitHubにプッシュします。
 2. Render.comのアカウントを作成・ログインします。
