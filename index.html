@@ -1,0 +1,709 @@
+<!doctype html>
+<html lang="ja">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>まわりマップ | 半径と町の見え方をすばやく確認</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap"
+    rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+  <!-- 
+    TODO: Google AdSenseのコードをここに貼り付けてください 
+    例: <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-XXXXXXXXXXXXXXXX" crossorigin="anonymous"></script>
+  -->
+</head>
+
+<body>
+  <div class="page">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand__title">まわりマップ</span>
+        <span class="brand__badge">BETA</span>
+      </div>
+      <div class="search">
+        <input type="text" placeholder="住所・駅名・地名を入力" id="addressInput" />
+        <button class="btn primary" id="moveButton">移動</button>
+        <button class="btn ghost" id="currentLocationButton">現在地</button>
+        <button class="btn ghost" id="openHelp">ガイド</button>
+      </div>
+    </header>
+    <div class="status" id="searchStatus">オープンデータで住所周辺へ移動し、半径メモを地図上に重ねられます。</div>
+
+    <main class="map-panel">
+      <div class="map-placeholder" id="map"></div>
+    </main>
+
+    <div class="site-tools">
+      <button class="chip-btn" id="openAbout">このサイトについて</button>
+      <button class="chip-btn" id="openPolicy">利用方針</button>
+      <a class="chip-btn chip-btn--link" href="./privacy.html">プライバシー</a>
+      <a class="chip-btn chip-btn--link" href="https://github.com/" target="_blank" rel="noreferrer" id="githubLink">GitHub</a>
+    </div>
+
+    <div class="modal is-hidden" id="helpModal">
+      <div class="modal__content">
+        <div class="modal__header">
+          <h2>ガイド</h2>
+          <button class="icon-btn" id="closeHelp" aria-label="閉じる">×</button>
+        </div>
+        <ol>
+          <li>住所・駅名・地名を入力して「移動」</li>
+          <li>候補が複数あれば一覧から選択</li>
+          <li>PCはダブルクリック、スマホはタップで円を追加</li>
+          <li>ポップアップで半径や色を調整</li>
+        </ol>
+        <p class="modal__note">引っ越し検討、徒歩圏の把握、商圏のラフ確認などを想定した軽量ツールです。</p>
+      </div>
+    </div>
+
+    <div class="modal is-hidden" id="aboutModal">
+      <div class="modal__content">
+        <div class="modal__header">
+          <h2>このサイトについて</h2>
+          <button class="icon-btn" id="closeAbout" aria-label="閉じる">×</button>
+        </div>
+        <p class="modal__body">
+          まわりマップは、住所や地名から周辺位置へすばやく移動し、地図上に半径を重ねて「生活圏」や「届く範囲」を見やすくするためのシンプルな地図ツールです。
+        </p>
+        <p class="modal__body">
+          背景地図や住所データにはオープンデータを利用し、できるだけ低コストで継続公開できる構成を目指しています。
+        </p>
+      </div>
+    </div>
+
+    <div class="modal is-hidden" id="policyModal">
+      <div class="modal__content">
+        <div class="modal__header">
+          <h2>利用方針</h2>
+          <button class="icon-btn" id="closePolicy" aria-label="閉じる">×</button>
+        </div>
+        <ul class="modal__list">
+          <li>本サイトは目安確認用です。正確な測量や法的判断には使わないでください。</li>
+          <li>検索・地図表示には外部の公開データと配信サービスを利用しています。</li>
+          <li>位置情報を使う機能は、ブラウザの許可がある場合のみ動作します。</li>
+          <li>広告や運営告知を掲載する場合があります。</li>
+        </ul>
+        <p class="modal__note">
+          データ出典: 国土地理院タイル / Geolonia 住所データ・行政区画データ
+        </p>
+      </div>
+    </div>
+
+    <div class="modal is-hidden" id="resultsModal">
+      <div class="modal__content">
+        <div class="modal__header">
+          <h2>候補から選択</h2>
+          <button class="icon-btn" id="closeResults" aria-label="閉じる">×</button>
+        </div>
+        <div class="results-list" id="resultsList"></div>
+        <p class="modal__note">候補が多い場合は入力を少し詳しくしてください。</p>
+      </div>
+    </div>
+  </div>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script>
+    const map = L.map("map", {
+      center: [35.681236, 139.767125],
+      zoom: 10,
+      zoomControl: true,
+      scrollWheelZoom: true,
+      dragging: true,
+      doubleClickZoom: false,
+      touchZoom: true,
+    });
+
+    map.scrollWheelZoom.enable();
+    map.dragging.enable();
+
+    L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png", {
+      attribution:
+        "<a href='https://maps.gsi.go.jp/development/ichiran.html' target='_blank'>地理院タイル</a> | Powered by <a href='https://geolonia.com/' target='_blank'>Geolonia</a>",
+      maxZoom: 18,
+    }).addTo(map);
+
+    L.control.scale().addTo(map);
+
+    const helpModal = document.getElementById("helpModal");
+    const closeHelp = document.getElementById("closeHelp");
+    const openHelp = document.getElementById("openHelp");
+    const aboutModal = document.getElementById("aboutModal");
+    const closeAbout = document.getElementById("closeAbout");
+    const openAbout = document.getElementById("openAbout");
+    const policyModal = document.getElementById("policyModal");
+    const closePolicy = document.getElementById("closePolicy");
+    const openPolicy = document.getElementById("openPolicy");
+    const addressInput = document.getElementById("addressInput");
+    const moveButton = document.getElementById("moveButton");
+    const currentLocationButton = document.getElementById("currentLocationButton");
+    const searchStatus = document.getElementById("searchStatus");
+
+    currentLocationButton.addEventListener("click", () => {
+      if (!navigator.geolocation) {
+        searchStatus.textContent = "お使いのブラウザは現在地検索に対応していません。";
+        return;
+      }
+
+      searchStatus.textContent = "現在地を取得中…";
+      currentLocationButton.disabled = true;
+
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const { latitude, longitude } = position.coords;
+          map.setView([latitude, longitude], 15);
+          createMarker([latitude, longitude]);
+          searchStatus.textContent = "現在地に移動しました。";
+          currentLocationButton.disabled = false;
+        },
+        (error) => {
+          console.error(error);
+          switch (error.code) {
+            case error.PERMISSION_DENIED:
+              searchStatus.textContent = "現在地の利用が許可されていません。";
+              break;
+            case error.POSITION_UNAVAILABLE:
+              searchStatus.textContent = "現在地情報を取得できませんでした。";
+              break;
+            case error.TIMEOUT:
+              searchStatus.textContent = "現在地の取得がタイムアウトしました。";
+              break;
+            default:
+              searchStatus.textContent = "現在地の取得に失敗しました。";
+              break;
+          }
+          currentLocationButton.disabled = false;
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 0,
+        }
+      );
+    });
+    const resultsModal = document.getElementById("resultsModal");
+    const closeResults = document.getElementById("closeResults");
+    const resultsList = document.getElementById("resultsList");
+
+    const API_ROOT = "https://geolonia.github.io/japanese-addresses/api";
+    let prefectureMap = null;
+    let cityToPref = null;
+    const townCache = new Map();
+    const markerStore = new Map();
+    let markerSeq = 0;
+    const DEFAULT_RADIUS_KM = 1;
+    const COLOR_CYCLE = ["#1f6f55", "#d6453b", "#2b6fd6", "#d48a2f", "#2f2f2f"];
+    const COLOR_LABELS = {
+      "#1f6f55": "緑",
+      "#d6453b": "赤",
+      "#2b6fd6": "青",
+      "#d48a2f": "黄",
+      "#2f2f2f": "黒",
+    };
+
+    closeHelp.addEventListener("click", () => {
+      helpModal.classList.add("is-hidden");
+    });
+
+    openHelp.addEventListener("click", () => {
+      helpModal.classList.remove("is-hidden");
+    });
+
+    closeAbout.addEventListener("click", () => {
+      aboutModal.classList.add("is-hidden");
+    });
+
+    openAbout.addEventListener("click", () => {
+      aboutModal.classList.remove("is-hidden");
+    });
+
+    closePolicy.addEventListener("click", () => {
+      policyModal.classList.add("is-hidden");
+    });
+
+    openPolicy.addEventListener("click", () => {
+      policyModal.classList.remove("is-hidden");
+    });
+
+    closeResults.addEventListener("click", () => {
+      resultsModal.classList.add("is-hidden");
+    });
+
+    function normalizeNumberInput(value) {
+      return value
+        .replace(/[０-９]/g, (s) => String.fromCharCode(s.charCodeAt(0) - 65248))
+        .replace(/[．。]/g, ".")
+        .replace(/[，]/g, ",")
+        .replace(/[\s　]/g, "");
+    }
+
+    function createMarker(latlng) {
+      const markerId = markerSeq++;
+      const marker = L.marker(latlng, { draggable: false }).addTo(map);
+      const circle = L.circle(latlng, {
+        radius: DEFAULT_RADIUS_KM * 1000,
+        color: COLOR_CYCLE[0],
+        fillColor: COLOR_CYCLE[0],
+        fillOpacity: 0.18,
+        weight: 2,
+      }).addTo(map);
+
+      const popupHtml = `
+          <div class="radius-popup" data-marker-id="${markerId}">
+            <div class="radius-row">
+              <span class="radius-label">半径</span>
+              <input id="radius-${markerId}" class="radius-input" type="text" inputmode="decimal" value="${DEFAULT_RADIUS_KM}" data-role="radius"
+                onkeydown="if(event.key==='Enter'){event.preventDefault();updateRadius(${markerId});}" />
+              <button class="color-dot color-dot--toggle is-active" style="--dot:#1f6f55" onclick="cycleCircleColor(${markerId}, this)" aria-label="色を変更"></button>
+              <span class="radius-unit">km</span>
+            </div>
+            <div class="radius-actions">
+              <button class="radius-btn" onclick="updateRadius(${markerId})">決定</button>
+              <button class="radius-btn radius-btn--danger" onclick="deleteMarker(${markerId})">削除</button>
+            </div>
+          </div>
+        `;
+
+      marker.bindPopup(popupHtml, { autoClose: false, closeOnClick: false }).openPopup();
+      marker.on("click", () => marker.openPopup());
+      marker.on("popupopen", (event) => {
+        const popupEl = event.popup.getElement();
+        if (!popupEl) return;
+        const input = popupEl.querySelector(`#radius-${markerId}`);
+        if (input) {
+          input.focus();
+          input.select();
+        }
+      });
+
+      markerStore.set(markerId, {
+        marker,
+        circle,
+      });
+    }
+
+    function updateRadius(markerId) {
+      const entry = markerStore.get(markerId);
+      if (!entry) return;
+      const input = document.getElementById(`radius-${markerId}`);
+      if (!input) return;
+      const raw = normalizeNumberInput(input.value);
+      const value = parseFloat(raw);
+      if (!Number.isFinite(value) || value <= 0) {
+        searchStatus.textContent = "半径は0より大きい数値で入力してください。";
+        return;
+      }
+      entry.circle.setRadius(value * 1000);
+      searchStatus.textContent = `半径を ${value}km に更新しました。`;
+    }
+
+    function deleteMarker(markerId) {
+      const entry = markerStore.get(markerId);
+      if (!entry) return;
+      map.removeLayer(entry.marker);
+      map.removeLayer(entry.circle);
+      markerStore.delete(markerId);
+      searchStatus.textContent = "ピンを削除しました。";
+    }
+
+    window.updateRadius = updateRadius;
+    window.deleteMarker = deleteMarker;
+    window.cycleCircleColor = cycleCircleColor;
+
+    function cycleCircleColor(markerId, el) {
+      const entry = markerStore.get(markerId);
+      if (!entry) return;
+      const current = entry.circle.options.color;
+      const idx = COLOR_CYCLE.indexOf(current);
+      const next = COLOR_CYCLE[(idx + 1) % COLOR_CYCLE.length];
+      entry.circle.setStyle({ color: next, fillColor: next });
+      if (el) {
+        el.style.setProperty("--dot", next);
+        el.setAttribute("aria-label", `色: ${COLOR_LABELS[next] || ""}`);
+      }
+      searchStatus.textContent = "色を切り替えました。";
+    }
+
+
+    // PCはダブルクリック、スマホはシングルクリックでマーカー作成
+    if (L.Browser.mobile) {
+      map.on("click", (event) => {
+        createMarker(event.latlng);
+      });
+    } else {
+      map.on("dblclick", (event) => {
+        createMarker(event.latlng);
+      });
+    }
+
+    function normalizeText(value) {
+      return value
+        .replace(/[０-９]/g, (s) => String.fromCharCode(s.charCodeAt(0) - 65248))
+        .replace(/[\\s　]/g, "")
+        .replace(/[‐‑‒–—―ー－]/g, "-");
+    }
+
+    function toKanjiNumber(value) {
+      const map = ["", "一", "二", "三", "四", "五", "六", "七", "八", "九", "十"];
+      const num = Number(value);
+      if (num > 0 && num <= 10) {
+        return map[num];
+      }
+      return value;
+    }
+
+    function kanjiToNumber(value) {
+      const map = {
+        "一": 1,
+        "二": 2,
+        "三": 3,
+        "四": 4,
+        "五": 5,
+        "六": 6,
+        "七": 7,
+        "八": 8,
+        "九": 9,
+      };
+      let num = 0;
+      let tmp = 0;
+      for (const char of value) {
+        if (char === "十") {
+          num += (tmp || 1) * 10;
+          tmp = 0;
+          continue;
+        }
+        if (map[char]) {
+          tmp += map[char];
+        }
+      }
+      return num + tmp;
+    }
+
+    function arabicToKanji(value) {
+      return value.replace(/(\d+)丁目/g, (_, num) => `${toKanjiNumber(num)}丁目`);
+    }
+
+    function kanjiToArabic(value) {
+      return value.replace(/([一二三四五六七八九十]+)丁目/g, (_, kanji) => {
+        const num = kanjiToNumber(kanji);
+        return num ? `${num}丁目` : `${kanji}丁目`;
+      });
+    }
+
+    function expandNumericVariants(value) {
+      const normalized = normalizeText(value);
+      const variants = new Set([normalized]);
+      variants.add(arabicToKanji(normalized));
+      variants.add(kanjiToArabic(normalized));
+      return Array.from(variants).filter(Boolean);
+    }
+
+    function scoreTownMatch(town, variants) {
+      let score = 0;
+      variants.forEach((variant) => {
+        if (!variant) return;
+        if (town === variant) {
+          score = Math.max(score, 3);
+        } else if (town.startsWith(variant)) {
+          score = Math.max(score, 2);
+        } else if (town.includes(variant)) {
+          score = Math.max(score, 1);
+        }
+      });
+      return score;
+    }
+
+    function normalizeTownName(town, koaza) {
+      return normalizeText(town + (koaza || ""));
+    }
+
+    async function loadPrefectureMap() {
+      if (prefectureMap) return prefectureMap;
+      const response = await fetch(`${API_ROOT}/ja.json`);
+      if (!response.ok) {
+        throw new Error("住所データの取得に失敗しました。");
+      }
+      prefectureMap = await response.json();
+      cityToPref = new Map();
+      Object.entries(prefectureMap).forEach(([pref, cities]) => {
+        cities.forEach((city) => {
+          if (!cityToPref.has(city)) {
+            cityToPref.set(city, [pref]);
+            return;
+          }
+          const list = cityToPref.get(city);
+          if (!list.includes(pref)) {
+            list.push(pref);
+          }
+        });
+      });
+      return prefectureMap;
+    }
+
+    function findLongestMatch(target, candidates) {
+      let best = "";
+      candidates.forEach((candidate) => {
+        if (target.includes(candidate) && candidate.length > best.length) {
+          best = candidate;
+        }
+      });
+      return best;
+    }
+
+    async function loadTownData(pref, city) {
+      const cacheKey = `${pref}-${city}`;
+      if (townCache.has(cacheKey)) {
+        return townCache.get(cacheKey);
+      }
+      const response = await fetch(
+        `${API_ROOT}/ja/${encodeURIComponent(pref)}/${encodeURIComponent(city)}.json`
+      );
+      if (!response.ok) {
+        throw new Error("町丁目データの取得に失敗しました。");
+      }
+      const data = await response.json();
+      townCache.set(cacheKey, data);
+      return data;
+    }
+
+    function getCityCenter(towns) {
+      let lat = 0;
+      let lng = 0;
+      let count = 0;
+      towns.forEach((item) => {
+        if (typeof item.lat === "number" && typeof item.lng === "number") {
+          lat += item.lat;
+          lng += item.lng;
+          count += 1;
+        }
+      });
+      if (!count) return null;
+      return [lat / count, lng / count];
+    }
+
+    async function moveToAddress() {
+      const rawInput = addressInput.value || "";
+      const input = normalizeText(rawInput);
+      if (!input) {
+        searchStatus.textContent = "住所や地名を入力してください。";
+        return;
+      }
+
+      moveButton.disabled = true;
+      searchStatus.textContent = "検索中…";
+      resultsList.innerHTML = "";
+      resultsModal.classList.add("is-hidden");
+
+      try {
+        const prefMap = await loadPrefectureMap();
+        const pref = findLongestMatch(input, Object.keys(prefMap));
+        let city = "";
+        if (pref) {
+          city = findLongestMatch(input, prefMap[pref]);
+        } else {
+          city = findLongestMatch(input, Array.from(cityToPref.keys()));
+        }
+
+        let resolvedPref = pref || "";
+        if (!resolvedPref && city) {
+          const prefs = cityToPref.get(city) || [];
+          if (prefs.length > 1) {
+            searchStatus.textContent = `「${city}」は複数の都道府県に存在します。都道府県も入力してください。`;
+            return;
+          }
+          resolvedPref = prefs[0] || "";
+        }
+
+        if (!resolvedPref || !city) {
+          searchStatus.textContent = "都道府県または市区町村を特定できませんでした。";
+          return;
+        }
+
+        const towns = await loadTownData(resolvedPref, city);
+        const normalizedPref = normalizeText(resolvedPref);
+        const normalizedCity = normalizeText(city);
+        const rest = input.replace(normalizedPref, "").replace(normalizedCity, "");
+        const variants = expandNumericVariants(rest || input).filter((item) => item.length >= 2);
+
+        let matchedTownData = null;
+        let matchedLength = 0;
+
+        towns.forEach((item) => {
+          const normalizedTown = normalizeTownName(item.town, item.koaza);
+          if (!normalizedTown) return;
+          const score = scoreTownMatch(normalizedTown, variants);
+          if (score === 3 && normalizedTown.length > matchedLength) {
+            matchedLength = normalizedTown.length;
+            matchedTownData = item;
+          }
+        });
+
+        if (matchedTownData) {
+          map.setView([matchedTownData.lat, matchedTownData.lng], 18);
+          searchStatus.textContent = `移動しました: ${resolvedPref}${city}${matchedTownData.town}`;
+          loadPolygon(resolvedPref, city);
+        } else {
+          const candidates = towns
+            .map((item) => {
+              const normalizedTown = normalizeTownName(item.town, item.koaza);
+              const score = scoreTownMatch(normalizedTown, variants);
+              return {
+                town: item.town + (item.koaza || ""),
+                lat: item.lat,
+                lng: item.lng,
+                score,
+              };
+            })
+            .filter((item) => item.score > 0)
+            .sort((a, b) => b.score - a.score || a.town.length - b.town.length)
+            .slice(0, 20);
+
+          if (candidates.length > 0) {
+            candidates.forEach((item) => {
+              const button = document.createElement("button");
+              button.type = "button";
+              button.className = "result-item";
+              button.textContent = `${resolvedPref}${city}${item.town}`;
+              button.addEventListener("click", () => {
+                map.setView([item.lat, item.lng], 18);
+                searchStatus.textContent = `移動しました: ${resolvedPref}${city}${item.town}`;
+                resultsModal.classList.add("is-hidden");
+                loadPolygon(resolvedPref, city);
+              });
+              resultsList.appendChild(button);
+            });
+            resultsModal.classList.remove("is-hidden");
+            searchStatus.textContent = "候補が見つかりました。選択してください。";
+            loadPolygon(resolvedPref, city); // Show polygon even while choosing town
+            return;
+          }
+
+          const center = getCityCenter(towns);
+          if (center) {
+            map.setView(center, 13);
+            searchStatus.textContent = `町丁目が特定できないため ${resolvedPref}${city} に移動しました。`;
+            loadPolygon(resolvedPref, city);
+            return;
+          }
+          const fallback = towns.find(
+            (item) => typeof item.lat === "number" && typeof item.lng === "number"
+          );
+          if (fallback) {
+            map.setView([fallback.lat, fallback.lng], 13);
+            searchStatus.textContent = `町丁目が特定できないため ${resolvedPref}${city} に移動しました。`;
+            loadPolygon(resolvedPref, city);
+            return;
+          }
+          searchStatus.textContent = "位置情報が見つかりませんでした。";
+        }
+      } catch (error) {
+        console.error(error);
+        searchStatus.textContent = "検索に失敗しました。時間をおいて試してください。";
+      } finally {
+        moveButton.disabled = false;
+      }
+    }
+
+    let municipalityData = null;
+    const MUNICIPALITIES_URL = "https://raw.githubusercontent.com/piuccio/open-data-jp-municipalities/master/municipalities.json";
+    let polygonLayer = null;
+
+    async function loadMunicipalities() {
+      if (municipalityData) return municipalityData;
+      try {
+        const response = await fetch(MUNICIPALITIES_URL);
+        if (!response.ok) throw new Error("自治体データの取得に失敗");
+        municipalityData = await response.json();
+        return municipalityData;
+      } catch (e) {
+        console.error("Municipality data load failed", e);
+        return [];
+      }
+    }
+
+    let polygonRequestId = 0;
+
+    async function loadPolygon(pref, city) {
+      const requestId = ++polygonRequestId;
+
+      if (polygonLayer) {
+        map.removeLayer(polygonLayer);
+        polygonLayer = null;
+      }
+
+      const data = await loadMunicipalities();
+      if (requestId !== polygonRequestId) return;
+
+      // data has code (6 digits), name_kanji, prefecture_kanji
+      // We need to match pref and city
+      const target = data.find(item => item.prefecture_kanji === pref && item.name_kanji === city);
+
+      if (!target) {
+        console.log("No matching municipality code found for", pref, city);
+        return;
+      }
+
+      // Code is 6 digits (e.g. 131016), Geolonia needs 5 digits (13101)
+      const fullCode = target.code;
+      const adminCode = fullCode.slice(0, 5);
+      const prefCode = adminCode.slice(0, 2);
+
+      const geojsonUrl = `https://geolonia.github.io/japanese-admins/${prefCode}/${adminCode}.json`;
+
+      try {
+        const response = await fetch(geojsonUrl);
+        if (!response.ok) throw new Error("Polygon fetch failed");
+        const geojson = await response.json();
+
+        if (requestId !== polygonRequestId) return;
+
+        if (polygonLayer) {
+          map.removeLayer(polygonLayer);
+          polygonLayer = null;
+        }
+
+        polygonLayer = L.geoJSON(geojson, {
+          style: {
+            color: "#3b6e5c",
+            weight: 4,
+            opacity: 0.8,
+            fillColor: "#3b6e5c",
+            fillOpacity: 0.2,
+          },
+          onEachFeature: function (feature, layer) {
+            layer.on('click', function (e) {
+              // Only clear and stop propagation if it's currently filled (visible)
+              if (this.options.fillOpacity > 0) {
+                L.DomEvent.stopPropagation(e);
+                this.setStyle({
+                  fillOpacity: 0
+                });
+              }
+            });
+          }
+        }).addTo(map);
+
+        // Optionally fit bounds to polygon if we just moved to city center
+        // but we usually want to focus on the point.
+        // map.fitBounds(polygonLayer.getBounds()); 
+      } catch (e) {
+        console.error("Failed to load polygon", e);
+      }
+    }
+
+    moveButton.addEventListener("click", moveToAddress);
+    addressInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        moveToAddress();
+      }
+    });
+
+  </script>
+</body>
+
+</html>

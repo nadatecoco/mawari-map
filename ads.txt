@@ -1,0 +1,3 @@
+# Google AdSense approval after publisher ID issuance.
+# Example:
+# google.com, pub-XXXXXXXXXXXXXXXX, DIRECT, f08c47fec0942fa0
